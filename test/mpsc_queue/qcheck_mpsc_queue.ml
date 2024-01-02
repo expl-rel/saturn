@@ -3,9 +3,10 @@ module Mpsc_queue = Saturn.Single_consumer_queue
 (* Mpsc_queue is a multiple producers, single consumer queue. *)
 (* Producers can use the functions
    - [push],
-   - [is_empty],
-   - [close] *)
+    *)
 (* Consumer can use the functions
+  - [is_empty],
+   - [close]
    - [pop],
    - [push],
    - [push_head] - This can only be used by the consumer

@@ -1,141 +1,145 @@
 exception Closed
 exception Empty
 
-(* A list whose the end indicates the queue is open or closed. *)
-type 'a clist = ( :: ) of 'a * 'a clist | Open | Closed
+type 'a t = { mutable head : 'a head_pack; tail : 'a tail_pack Atomic.t }
 
-(* [rev_append l1 l2] is like [rev l1 @ l2] *)
-let rec rev_append l1 l2 =
-  match l1 with
-  | a :: l -> rev_append l (a :: l2)
-  | Open -> l2
-  | Closed -> assert false
+and ('a, _) head =
+  | Cons : 'a * 'a head_pack -> ('a, [> `Cons ]) head
+  | Hopen : ('a, [> `Hopen ]) head
+  | Hclosed : ('a, [> `Hclosed ]) head
 
-let[@tail_mod_cons] rec ( @ ) l1 l2 =
-  match l1 with
-  | h1 :: tl -> h1 :: (tl @ l2)
-  | Open -> l2
-  | Closed -> assert false
+and 'a head_pack = H : ('a, [< `Cons | `Hopen | `Hclosed ]) head -> 'a head_pack
+[@@unboxed]
 
-(* The queue contains [head @ rev tail].
-   If [tail] is non-empty then it ends in [Open]. *)
-type 'a t = { head : 'a clist ref; tail : 'a clist Atomic.t }
+and ('a, _) tail =
+  | Snoc : 'a tail_pack * 'a -> ('a, [> `Snoc ]) tail
+  | Topen : ('a, [> `Topen ]) tail
+  | Tclosed : ('a, [> `Tclosed ]) tail
+
+and 'a tail_pack = T : ('a, [< `Snoc | `Topen | `Tclosed ]) tail -> 'a tail_pack
+[@@unboxed]
 
 let create () =
-  let tail = Multicore_magic.copy_as_padded @@ Atomic.make Open in
-  let head = Multicore_magic.copy_as_padded @@ ref Open in
+  let tail = Multicore_magic.copy_as_padded @@ Atomic.make (T Topen) in
+  let head = Multicore_magic.copy_as_padded @@ H Hopen in
   Multicore_magic.copy_as_padded { tail; head }
 
-(* can be used by all Consumers and Producers *)
+(* let push t x = t.tail <- T (Snoc (t.tail, x)) *)
+
 let rec push t x =
   match Atomic.get t.tail with
-  | Closed -> raise Closed
+  | T Tclosed -> raise Closed
   | before ->
-      let after = x :: before in
+      let after = T (Snoc (before, x)) in
       if not (Atomic.compare_and_set t.tail before after) then push t x
 
-let push_head t x =
-  match !(t.head) with
-  | Closed -> raise Closed (*when head is closed and empty*)
-  | before -> t.head := x :: before
+(*  *)
+let rec rev_to (head : (_, [< `Cons ]) head) = function
+  | T Topen -> head
+  | T Tclosed -> assert false
+  | T (Snoc (xs, x)) -> rev_to (Cons (x, H head)) xs
 
-(* Only by the cosumers *)
-let rec pop t =
-  match !(t.head) with
-  | x :: xs ->
-      t.head := xs;
-      x
-  | Closed -> raise Closed (*implies closed and empty*)
-  | Open -> (
-      (* We know the tail is open because we just saw the head was open *)
-      (* we cannot run concurrently with [close] *)
-      match Atomic.exchange t.tail Open with
-      | Closed ->
-          failwith
-            "This cannot happen, maybe you are running close concurrently with \
-             pop"
-      | Open -> raise Empty
-      | tail ->
-          t.head := rev_append tail Open;
-          pop t)
+let rec rev (head) = function
+  | T Topen -> head
+  | T Tclosed -> assert false
+  | T (Snoc (xs, x)) -> rev (H (Cons (x, head))) xs
 
-(* to be closed only by the consumers since it alters the head *)
-let close t =
-  match Atomic.exchange t.tail Closed with
-  | Closed -> raise Closed (*already closed*)
-  | xs -> t.head := !(t.head) @ rev_append xs Closed
+let rev_pop = function
+  | (Snoc (tail, x) : (_, [< `Snoc ]) tail) -> rev_to (Cons (x, H Hopen)) tail
 
-let rec pop_opt t =
-  match !(t.head) with
-  | x :: xs ->
-      t.head := xs;
+let rec append a b =
+  match b with
+  | H Hclosed ->
+      failwith
+        "This cannot happen, maybe you are running close concurrently with \
+         another [close]"
+  | H Hopen -> a
+  | H (Cons (x, xs)) -> H (Cons (x, append a xs))
+
+let pop_opt t =
+  match t.head with
+  | H Hclosed -> raise Closed (*Closed and empty*)
+  | H (Cons (x, xs)) ->
+      t.head <- xs;
       Some x
-  | Closed -> raise Closed
-  | Open -> (
-      (* We know the tail is open because we just saw the head was open
-         and we don't run concurrently with [close]. *)
-      (* assert false but close can be run with MP *)
-      match Atomic.exchange t.tail Open with
-      | Closed ->
+  | H Hopen -> (
+      match Atomic.exchange t.tail (T Topen) with
+      | T Topen -> None
+      | T Tclosed ->
           failwith
             "This cannot happen, maybe you are running close concurrently with \
-             pop_opt"
-      | Open -> None
-      | tail ->
-          t.head := rev_append tail Open;
-          pop_opt t)
+             [pop]"
+      | T (Snoc _ as tail) -> (
+          match rev_pop tail with
+          | Cons (x, xs) ->
+              t.head <- xs;
+              Some x))
 
-(* can be called concurrently with close. Might result in incorrect result if it is called concurrently with push or pop *)
-let rec peek t =
-  match !(t.head) with
-  | x :: _ -> x
-  | Closed -> raise Closed
-  | Open -> (
-      match Atomic.get t.tail with
-      | Open -> raise Empty
-      | Closed ->
-          peek t
-          (*might be called concurrently with closed so calling peek again to recheck - or is a failwith message better?*)
-      | tail -> (
-          match rev_append tail Open with
-          | x :: _ -> x
-          | Open -> assert false
-          | Closed -> assert false))
+let pop t =
+  match t.head with
+  | H Hclosed -> raise Closed (*Closed and empty*)
+  | H (Cons (x, xs)) ->
+      t.head <- xs;
+      x
+  | H Hopen -> (
+      match Atomic.exchange t.tail (T Topen) with
+      | T Topen -> raise Empty
+      | T Tclosed ->
+          failwith
+            "This cannot happen, maybe you are running close concurrently with \
+             [pop]"
+      | T (Snoc _ as tail) -> (
+          match rev_pop tail with
+          | Cons (x, xs) ->
+              t.head <- xs;
+              x))
 
-let rec peek_opt t =
-  match !(t.head) with
-  | x :: _ -> Some x
-  | Closed -> raise Closed
-  | Open -> (
+let close t =
+  match Atomic.exchange t.tail (T Tclosed) with
+  | T Tclosed -> raise Closed
+  | tail ->
+      let y = rev (H Hclosed) tail in
+      t.head <- append y t.head
+
+let peek t =
+  match t.head with
+  | H (Cons (x, _)) -> x
+  | H Hclosed -> raise Closed
+  | H Hopen -> (
       match Atomic.get t.tail with
-      | Open -> None
-      | Closed ->
-          peek_opt t
-          (*might be called concurrently with closed so calling peek again to recheck - or is a failwith message better?*)
-      | tail -> (
-          match rev_append tail Open with
-          | x :: _ -> Some x
-          | Open -> assert false
-          | Closed -> assert false))
+      | T Topen -> raise Empty
+      | T Tclosed ->
+          failwith
+            "This cannot happen, maybe you are running close concurrently with \
+             [close]"
+      | T (Snoc _ as tail) -> ( match rev_pop tail with (Cons (x, _)) -> x))
+
+let peek_opt t =
+  match t.head with
+  | H (Cons (x, _)) -> Some x
+  | H Hclosed -> raise Closed
+  | H Hopen -> (
+      match Atomic.get t.tail with
+      | T Topen -> None
+      | T Tclosed ->
+          failwith
+            "This cannot happen, maybe you are running close concurrently with \
+             [close]"
+      | T (Snoc _ as tail) -> ( match rev_pop tail with (Cons (x, _)) -> Some x))
 
 let is_empty t =
-  match !(t.head) with
-  | _ :: _ -> false
-  | Closed -> raise Closed (*closed and empty*)
-  | Open -> (
+  match t.head with
+  | H Hclosed -> raise Closed
+  | H (Cons (_, _)) -> false
+  | H Hopen -> (
       match Atomic.get t.tail with
-      | _ :: _ -> false
-      | Open -> (
-          match !(t.head) with
-          | Open -> true
-          | _ :: _ -> false
-          | Closed ->
-              failwith
-                "This cannot happen, maybe you are running close concurrently \
-                 with [close]")
-      | Closed ->
+      | T (Snoc (_, _)) -> false
+      | T Topen -> true
+      | T Tclosed ->
           failwith
             "This cannot happen, maybe you are running close concurrently with \
-             [close]")
-(* Incorrect reading of t.head if a pop function is called concurrently - false negative*)
-(* Incorrect reading of t.tail if push is called concurrently - false positive*)
+             [is_empty]")
+let push_head t x = 
+  match t.head with
+  | H Hclosed -> raise Closed
+  | head -> t.head <- H (Cons(x, head))

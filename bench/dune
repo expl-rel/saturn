@@ -1,3 +1,3 @@
 (executables
- (names main mpmc_queue_cmd)
- (libraries saturn unix yojson))
+ (names main mpmc_queue_cmd bench_mpsc_queue)
+ (libraries saturn unix yojson saturn_lockfree))
