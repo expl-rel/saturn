@@ -10,7 +10,7 @@ let () =
 (library
  (name saturn_lockfree)
  (public_name saturn_lockfree)
- (libraries multiccore-magic backoff |}
+ (libraries backoff |}
   ^ maybe_threads
   ^ {| ))
 

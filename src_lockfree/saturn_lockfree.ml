@@ -32,10 +32,3 @@ module Work_stealing_deque = Ws_deque
 module Single_prod_single_cons_queue = Spsc_queue
 module Single_consumer_queue = Mpsc_queue
 module Relaxed_queue = Mpmc_relaxed_queue
-<<<<<<< HEAD
-module Backoff = Backoff
-(*  *)
-module Mpsc_queue_1 = Mpsc_queue_1
-module Mpsc_queue_old = Mpsc_queue_old
-=======
->>>>>>> 0668f837887e6d563cd83fc6ecc6997610e748b2
