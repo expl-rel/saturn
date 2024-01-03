@@ -11,37 +11,67 @@ on:
 
 jobs:
   windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        ocaml-compiler:
+          - ocaml.5.0.0,ocaml-option-mingw
+          - ocaml.5.1.1,ocaml-option-mingw
+
     runs-on: windows-latest
 
     env:
       QCHECK_MSG_INTERVAL: '60'
 
     steps:
-      - name: Checkout code
+      - name: Check out code
         uses: actions/checkout@v2
 
-      - name: Get latest OCaml commit hash
-        id: multicore_hash
-        shell: bash
-        run: |
-          curl -sH "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/ocaml/ocaml/commits/trunk \
-          | jq .commit.tree.sha | xargs printf '::set-output name=commit::%s'
-
-      - name: Use OCaml ${{ matrix.ocaml-compiler }}
+      - name: Set up OCaml
         uses: ocaml/setup-ocaml@v2
         with:
           opam-pin: false
           opam-depext: false
-          ocaml-compiler: ocaml.5.0.0,ocaml-option-mingw
+          ocaml-compiler: ${{ matrix.ocaml-compiler }}
           opam-repositories: |
             dra27: https://github.com/dra27/opam-repository.git#windows-5.0
             default: https://github.com/ocaml-opam/opam-repository-mingw.git#sunset
             upstream: https://github.com/ocaml/opam-repository.git
-          cache-prefix: ${{ steps.multicore_hash.outputs.commit }}
 
-      - run: opam install . --deps-only --with-test
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test
 
-      - run: opam exec -- dune build
+      - name: Build
+        run: opam exec -- dune build
 
-      - run: opam exec -- dune runtest
+      - name: Test
+        run: opam exec -- dune runtest
+
+  build-4_x:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+        ocaml-compiler:
+          - 4.13.x
+          - 4.14.x
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v2
+        with:
+          opam-pin: false
+          opam-depext: false
+          ocaml-compiler: ${{ matrix.ocaml-compiler }}
+
+      - name: Install dependencies
+        run: opam install . --deps-only
+
+      - name: Build (release)
+        run: opam exec -- dune build --release

@@ -39,7 +39,6 @@ module Relaxed_queue = Mpmc_relaxed_queue
 
 (** {2 Other} *)
 
-module Backoff = Backoff
 (*  *)
 module Mpsc_queue_1 = Mpsc_queue_1
 module Mpsc_queue_old = Mpsc_queue_old
