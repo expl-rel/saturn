@@ -1,3 +1,4 @@
+(* GADT implementation of MPSC queue   *)
 exception Closed
 exception Empty
 
@@ -8,7 +9,8 @@ and ('a, _) head =
   | Hopen : ('a, [> `Hopen ]) head
   | Hclosed : ('a, [> `Hclosed ]) head
 
-and 'a head_pack = H : ('a, [< `Cons | `Hopen | `Hclosed ]) head -> 'a head_pack
+and 'a head_pack =
+  | H : ('a, [< `Cons | `Hopen | `Hclosed ]) head -> 'a head_pack
 [@@unboxed]
 
 and ('a, _) tail =
@@ -16,7 +18,8 @@ and ('a, _) tail =
   | Topen : ('a, [> `Topen ]) tail
   | Tclosed : ('a, [> `Tclosed ]) tail
 
-and 'a tail_pack = T : ('a, [< `Snoc | `Topen | `Tclosed ]) tail -> 'a tail_pack
+and 'a tail_pack =
+  | T : ('a, [< `Snoc | `Topen | `Tclosed ]) tail -> 'a tail_pack
 [@@unboxed]
 
 let create () =
@@ -26,20 +29,25 @@ let create () =
 
 (* let push t x = t.tail <- T (Snoc (t.tail, x)) *)
 
-let rec push t x =
+let rec push backoff t x =
   match Atomic.get t.tail with
   | T Tclosed -> raise Closed
   | before ->
       let after = T (Snoc (before, x)) in
-      if not (Atomic.compare_and_set t.tail before after) then push t x
+      if not (Atomic.compare_and_set t.tail before after) then
+        Backoff.once backoff;
+        push (Backoff.default) t x
+
+let push t x = push Backoff.default t x
 
 (*  *)
-let rec rev_to (head : (_, [< `Cons ]) head) = function
-  | T Topen -> head
-  | T Tclosed -> assert false
-  | T (Snoc (xs, x)) -> rev_to (Cons (x, H head)) xs
+let rec rev_to (head : (_, [< `Cons ]) head)
+    (tail : (_, [< `Snoc | `Topen ]) tail) =
+  match tail with
+  | Topen -> head
+  | Snoc (T xs, x) -> rev_to (Cons (x, H head)) xs
 
-let rec rev (head) = function
+let rec rev head = function
   | T Topen -> head
   | T Tclosed -> assert false
   | T (Snoc (xs, x)) -> rev (H (Cons (x, head))) xs
@@ -51,7 +59,7 @@ let rec append a b =
   match b with
   | H Hclosed ->
       failwith
-        "This cannot happen, maybe you are running close concurrently with \
+        "This cannot happen, maybe you are running [close] concurrently with \
          another [close]"
   | H Hopen -> a
   | H (Cons (x, xs)) -> H (Cons (x, append a xs))
@@ -67,10 +75,11 @@ let pop_opt t =
       | T Topen -> None
       | T Tclosed ->
           failwith
-            "This cannot happen, maybe you are running close concurrently with \
-             [pop]"
+            "This cannot happen, maybe you are running [close] concurrently \
+             with [pop]"
       | T (Snoc _ as tail) -> (
           match rev_pop tail with
+          | Cons (x, H Hopen) -> Some x
           | Cons (x, xs) ->
               t.head <- xs;
               Some x))
@@ -86,10 +95,11 @@ let pop t =
       | T Topen -> raise Empty
       | T Tclosed ->
           failwith
-            "This cannot happen, maybe you are running close concurrently with \
-             [pop]"
+            "This cannot happen, maybe you are running [close] concurrently \
+             with [pop]"
       | T (Snoc _ as tail) -> (
           match rev_pop tail with
+          | Cons (x, H Hopen) -> x
           | Cons (x, xs) ->
               t.head <- xs;
               x))
@@ -110,9 +120,14 @@ let peek t =
       | T Topen -> raise Empty
       | T Tclosed ->
           failwith
-            "This cannot happen, maybe you are running close concurrently with \
-             [close]"
-      | T (Snoc _ as tail) -> ( match rev_pop tail with (Cons (x, _)) -> x))
+            "This cannot happen, maybe you are running [peek] concurrently \
+             with [close]"
+      | T (Snoc _ as tail) -> (
+          match rev_pop tail with
+          | Cons (x, H Hopen) -> x
+          | Cons (x, _) as head ->
+              t.head <- head;
+              x))
 
 let peek_opt t =
   match t.head with
@@ -123,9 +138,14 @@ let peek_opt t =
       | T Topen -> None
       | T Tclosed ->
           failwith
-            "This cannot happen, maybe you are running close concurrently with \
-             [close]"
-      | T (Snoc _ as tail) -> ( match rev_pop tail with (Cons (x, _)) -> Some x))
+            "This cannot happen, maybe you are running [peek] concurrently \
+             with [close]"
+      | T (Snoc _ as tail) -> (
+          match rev_pop tail with
+          | Cons (x, H Hopen) -> Some x
+          | Cons (x, _) as head ->
+              t.head <- head;
+              Some x))
 
 let is_empty t =
   match t.head with
@@ -137,9 +157,10 @@ let is_empty t =
       | T Topen -> true
       | T Tclosed ->
           failwith
-            "This cannot happen, maybe you are running close concurrently with \
-             [is_empty]")
-let push_head t x = 
+            "This cannot happen, maybe you are running [close] concurrently \
+             with [is_empty]")
+
+let push_head t x =
   match t.head with
   | H Hclosed -> raise Closed
-  | head -> t.head <- H (Cons(x, head))
+  | head -> t.head <- H (Cons (x, head))
