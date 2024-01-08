@@ -41,18 +41,18 @@ let push t x = push Backoff.default t x
 
 (*  *)
 (* let rec rev_to (head : (_, [< `Cons ]) head) (tail :(_, [<`Snoc | `Topen]) tail) = function
-  | Topen -> head
-  | (Snoc (T (xs: ((_, [<`Snoc | `Topen | `Tclosed]) tail)), x)) -> rev_to ( (Cons (x, H head))) xs
-  | Tclosed -> assert false *)
+   | Topen -> head
+   | (Snoc (T (xs: ((_, [<`Snoc | `Topen | `Tclosed]) tail)), x)) -> rev_to ( (Cons (x, H head))) xs
+   | Tclosed -> assert false *)
 
 let rec rev_to (head : (_, [< `Cons ]) head) = function
-  |T Topen -> head
-  |T Tclosed -> assert false
-  |T (Snoc (xs, x)) -> rev_to (Cons (x, H head)) xs
-  
+  | T Topen -> head
+  | T Tclosed -> assert false
+  | T (Snoc (xs, x)) -> rev_to (Cons (x, H head)) xs
+
 let rec rev head = function
   | T Topen -> head
-  | (T (Snoc (xs, x))) -> rev (H (Cons (x, head))) xs
+  | T (Snoc (xs, x)) -> rev (H (Cons (x, head))) xs
   | T Tclosed -> assert false
 
 let rev_pop = function

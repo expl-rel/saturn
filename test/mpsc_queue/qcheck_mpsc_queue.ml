@@ -3,15 +3,15 @@ module Mpsc_queue = Saturn_lockfree.Single_consumer_queue
 (* Mpsc_queue is a multiple producers, single consumer queue. *)
 (* Producers can use the functions
    - [push],
-    *)
+*)
 (* Consumer can use the functions
-  - [is_empty],
-   - [close]
-   - [pop],
-   - [push],
-   - [push_head] - This can only be used by the consumer
-          (if run in parallel with {!pop}, the item might be skipped),
-   - [is_empty], *)
+   - [is_empty],
+    - [close]
+    - [pop],
+    - [push],
+    - [push_head] - This can only be used by the consumer
+           (if run in parallel with {!pop}, the item might be skipped),
+    - [is_empty], *)
 
 let extract_n q n close =
   let rec loop acc = function

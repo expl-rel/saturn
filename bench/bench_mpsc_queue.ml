@@ -161,7 +161,8 @@ let bench_multi_push_pop label create push try_pop n_producers =
 
     List.iter Domain.join others
   in
-  Printf.printf "%s push_pop (%d producers): %f per second\n%!" label n_producers
+  Printf.printf "%s push_pop (%d producers): %f per second\n%!" label
+    n_producers
     (Float.of_int (n_messages * n_producers) /. elapsed)
 
 let bench_multi_rand label create push try_pop n_producers =
@@ -281,7 +282,9 @@ let () =
 
   bench_single_all "Picos MPSC single    " Mpsc_queue_1.create Mpsc_queue_1.push
     (fun q -> Mpsc_queue_1.pop_opt q |> ignore)
-    (fun q -> Mpsc_queue_1.is_empty q |> ignore) Mpsc_queue_1.push_head (fun q -> Mpsc_queue_1.peek_opt q |> ignore);
+    (fun q -> Mpsc_queue_1.is_empty q |> ignore)
+    Mpsc_queue_1.push_head
+    (fun q -> Mpsc_queue_1.peek_opt q |> ignore);
   bench_single_all "GADT implementation  " Saturn.Single_consumer_queue.create
     Saturn.Single_consumer_queue.push
     (fun q -> Saturn.Single_consumer_queue.pop_opt q |> ignore)
@@ -318,7 +321,7 @@ let () =
      bench_multi "Saturn queue " Saturn.Queue.create Saturn.Queue.push
        (fun q -> Saturn.Queue.pop_opt q |> Option.is_some)
        n;
-       print_endline "";
+     print_endline "";
      bench_multi_ratio "Picos MPSC " Mpsc_queue_1.create Mpsc_queue_1.push
        (fun q -> Mpsc_queue_1.pop q |> ignore)
        n;
@@ -352,8 +355,8 @@ let () =
      bench_multi_push_pop "Picos MPSC " Mpsc_queue_1.create Mpsc_queue_1.push
        (fun q -> Mpsc_queue_1.pop q |> ignore)
        n;
-     bench_multi_push_pop "GADT implementation " Saturn.Single_consumer_queue.create
-       Saturn.Single_consumer_queue.push
+     bench_multi_push_pop "GADT implementation "
+       Saturn.Single_consumer_queue.create Saturn.Single_consumer_queue.push
        (fun q -> Saturn.Single_consumer_queue.pop q |> ignore)
        n;
      bench_multi_push_pop "Saturn old MPSC queue " Mpsc_queue_old.create
