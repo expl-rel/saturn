@@ -13,7 +13,7 @@ let average action =
     let elapsed = Unix.gettimeofday () -. start in
     if n_warmup < i then total := !total +. elapsed
   done;
-  Printf.printf "%f" (!total /. Float.of_int n_times);
+  (* Printf.printf "%f" (!total /. Float.of_int n_times); *)
   !total /. Float.of_int n_times
 
 let bench_single label create push pop =
@@ -99,18 +99,17 @@ let bench_single_rand label create push pop =
   Printf.printf "%s  (one domain with rand operation): %f per second\n%!" label
     (Float.of_int n_messages /. elapsed)
 
-let bench_single_all label create push pop is_empty push_head peek close =
+let bench_single_all label create push pop is_empty push_head peek =
   let elapsed =
     average @@ fun () ->
     let queue = create () in
     for i = 1 to n_messages do
-      let rand = Random.int 8 in
-      if rand < 2 then push queue i
+      let rand = Random.int 7 in
+      if rand < 2 then ignore @@ push queue i
       else if rand < 4 then ignore @@ pop queue
       else if rand < 5 then ignore @@ push_head queue i
       else if rand < 6 then ignore @@ is_empty queue
       else if rand < 7 then ignore @@ peek queue
-      else if rand < 8 then ignore @@ close queue
     done
   in
   Printf.printf "%s  (one domain with all operations): %f per second\n%!" label
@@ -146,9 +145,9 @@ let bench_multi_push_pop label create push try_pop n_producers =
   let elapsed =
     average @@ fun () ->
     let queue = create () in
-    let avg = average @@ fun () -> push queue 0 in
+    (* let avg = average @@ fun () -> push queue 0 in *)
     let others =
-      Printf.printf "%f" avg;
+      (* Printf.printf "%f" avg; *)
       List.init n_producers @@ fun _ ->
       Domain.spawn @@ fun () ->
       for i = 1 to n_messages do
@@ -162,7 +161,7 @@ let bench_multi_push_pop label create push try_pop n_producers =
 
     List.iter Domain.join others
   in
-  Printf.printf "%s ratio (%d producers): %f per second\n%!" label n_producers
+  Printf.printf "%s push_pop (%d producers): %f per second\n%!" label n_producers
     (Float.of_int (n_messages * n_producers) /. elapsed)
 
 let bench_multi_rand label create push try_pop n_producers =
@@ -171,9 +170,7 @@ let bench_multi_rand label create push try_pop n_producers =
   let elapsed =
     average @@ fun () ->
     let queue = create () in
-    let avg = average @@ fun () -> push queue 0 in
     let others =
-      Printf.printf "%f" avg;
       List.init n_producers @@ fun _ ->
       Domain.spawn @@ fun () ->
       for i = 1 to n_messages do
@@ -201,7 +198,7 @@ let bench_multi_rand label create push try_pop n_producers =
     done;
     List.iter Domain.join others
   in
-  Printf.printf "%s ratio (%d producers): %f per second\n%!" label n_producers
+  Printf.printf "%s random (%d producers): %f per second\n%!" label n_producers
     (Float.of_int (n_messages * n_producers) /. elapsed)
 
 let bench_multi_ratio label create push try_pop n_producers =
@@ -283,19 +280,17 @@ let () =
   print_endline "";
 
   bench_single_all "Picos MPSC single    " Mpsc_queue_1.create Mpsc_queue_1.push
-    (fun q -> Mpsc_queue_1.pop q |> ignore)
-    Mpsc_queue_1.is_empty Mpsc_queue_1.push_head Mpsc_queue_1.peek
-    Mpsc_queue_1.close;
+    (fun q -> Mpsc_queue_1.pop_opt q |> ignore)
+    (fun q -> Mpsc_queue_1.is_empty q |> ignore) Mpsc_queue_1.push_head (fun q -> Mpsc_queue_1.peek_opt q |> ignore);
   bench_single_all "GADT implementation  " Saturn.Single_consumer_queue.create
     Saturn.Single_consumer_queue.push
-    (fun q -> Saturn.Single_consumer_queue.pop q |> ignore)
+    (fun q -> Saturn.Single_consumer_queue.pop_opt q |> ignore)
     Saturn.Single_consumer_queue.is_empty Saturn.Single_consumer_queue.push_head
-    Saturn.Single_consumer_queue.peek Saturn.Single_consumer_queue.close;
+    Saturn.Single_consumer_queue.peek_opt;
   bench_single_all "Saturn old MPSC queue " Mpsc_queue_old.create
     Mpsc_queue_old.push
-    (fun q -> Mpsc_queue_old.pop q |> ignore)
-    Mpsc_queue_old.is_empty Mpsc_queue_old.push_head Mpsc_queue_old.peek
-    Mpsc_queue_old.close;
+    (fun q -> Mpsc_queue_old.pop_opt q |> ignore)
+    Mpsc_queue_old.is_empty Mpsc_queue_old.push_head Mpsc_queue_old.peek_opt;
 
   (* bench_single_all "Saturn queue          " Saturn.Queue.create
      Saturn.Queue.push
@@ -323,6 +318,7 @@ let () =
      bench_multi "Saturn queue " Saturn.Queue.create Saturn.Queue.push
        (fun q -> Saturn.Queue.pop_opt q |> Option.is_some)
        n;
+       print_endline "";
      bench_multi_ratio "Picos MPSC " Mpsc_queue_1.create Mpsc_queue_1.push
        (fun q -> Mpsc_queue_1.pop q |> ignore)
        n;
