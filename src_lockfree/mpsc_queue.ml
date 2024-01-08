@@ -35,22 +35,25 @@ let rec push backoff t x =
   | before ->
       let after = T (Snoc (before, x)) in
       if not (Atomic.compare_and_set t.tail before after) then
-        Backoff.once backoff;
-        push (Backoff.default) t x
+        push (Backoff.once backoff) t x
 
 let push t x = push Backoff.default t x
 
 (*  *)
-let rec rev_to (head : (_, [< `Cons ]) head)
-    (tail : (_, [< `Snoc | `Topen ]) tail) =
-  match tail with
+(* let rec rev_to (head : (_, [< `Cons ]) head) (tail :(_, [<`Snoc | `Topen]) tail) = function
   | Topen -> head
-  | Snoc (T xs, x) -> rev_to (Cons (x, H head)) xs
+  | (Snoc (T (xs: ((_, [<`Snoc | `Topen | `Tclosed]) tail)), x)) -> rev_to ( (Cons (x, H head))) xs
+  | Tclosed -> assert false *)
 
+let rec rev_to (head : (_, [< `Cons ]) head) = function
+  |T Topen -> head
+  |T Tclosed -> assert false
+  |T (Snoc (xs, x)) -> rev_to (Cons (x, H head)) xs
+  
 let rec rev head = function
   | T Topen -> head
+  | (T (Snoc (xs, x))) -> rev (H (Cons (x, head))) xs
   | T Tclosed -> assert false
-  | T (Snoc (xs, x)) -> rev (H (Cons (x, head))) xs
 
 let rev_pop = function
   | (Snoc (tail, x) : (_, [< `Snoc ]) tail) -> rev_to (Cons (x, H Hopen)) tail
@@ -126,7 +129,7 @@ let peek t =
           match rev_pop tail with
           | Cons (x, H Hopen) -> x
           | Cons (x, _) as head ->
-              t.head <- head;
+              t.head <- H head;
               x))
 
 let peek_opt t =
@@ -144,7 +147,7 @@ let peek_opt t =
           match rev_pop tail with
           | Cons (x, H Hopen) -> Some x
           | Cons (x, _) as head ->
-              t.head <- head;
+              t.head <- H head;
               Some x))
 
 let is_empty t =

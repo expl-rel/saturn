@@ -6,7 +6,7 @@
 (test
  (package saturn_lockfree)
  (name mpsc_queue_dscheck)
- (libraries atomic dscheck alcotest)
+ (libraries atomic dscheck alcotest multicore-magic backoff)
  (modules mpsc_queue mpsc_queue_dscheck))
 
 (test
@@ -18,7 +18,9 @@
   qcheck
   qcheck-core
   qcheck-alcotest
-  alcotest)
+  alcotest
+  multicore-magic
+  backoff)
  (modules qcheck_mpsc_queue))
 
 (test
@@ -32,7 +34,9 @@
   qcheck-multicoretests-util
   qcheck-stm.stm
   qcheck-stm.sequential
-  qcheck-stm.domain)
+  qcheck-stm.domain
+  multicore-magic
+  backoff)
  (enabled_if
   (= %{arch_sixtyfour} true))
  (action
